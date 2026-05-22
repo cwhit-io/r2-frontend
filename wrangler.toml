@@ -1,0 +1,18 @@
+name = "r2-frontend"
+main = "src/index.ts"
+compatibility_date = "2026-05-22"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "r2-frontend"
+database_id = "local-dev-db-id"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "r2-frontend-files"
+
+[vars]
+ADMIN_EMAIL_DOMAIN = ""
+R2_ACCOUNT_ID = ""
+R2_ACCESS_KEY_ID = ""
+R2_BUCKET_NAME = "r2-frontend-files"
