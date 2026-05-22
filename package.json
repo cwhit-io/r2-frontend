@@ -1,0 +1,24 @@
+{
+  "name": "r2-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 execute r2-frontend --local --file=./db/migrations/0001_init.sql",
+    "db:seed:local": "wrangler d1 execute r2-frontend --local --file=./db/seed.sql",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260512.0",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9",
+    "wrangler": "^3.114.17"
+  }
+}

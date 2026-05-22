@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS files (
+  id TEXT PRIMARY KEY,
+  filename TEXT NOT NULL,
+  r2_key TEXT NOT NULL UNIQUE,
+  uploader TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  downloads INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS downloads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id TEXT NOT NULL,
+  timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ip_hash TEXT NOT NULL,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_downloads_file_id ON downloads(file_id);
