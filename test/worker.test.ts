@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 class MockD1 {
   private files = new Map<string, FileRecord>();
+  public downloadEvents: Array<{ file_id: string; ip_hash: string }> = [];
 
   prepare(query: string) {
-    return new MockPrepared(query, this.files);
+    return new MockPrepared(query, this.files, this.downloadEvents);
   }
 }
 
@@ -15,7 +16,8 @@ class MockPrepared {
 
   constructor(
     private readonly query: string,
-    private readonly files: Map<string, FileRecord>
+    private readonly files: Map<string, FileRecord>,
+    private readonly downloadEvents: Array<{ file_id: string; ip_hash: string }>
   ) {}
 
   bind(...values: unknown[]) {
@@ -68,6 +70,12 @@ class MockPrepared {
       return {};
     }
 
+    if (this.query.startsWith('INSERT INTO downloads')) {
+      const [file_id, ip_hash] = this.values as [string, string];
+      this.downloadEvents.push({ file_id, ip_hash });
+      return {};
+    }
+
     return {};
   }
 }
@@ -99,19 +107,24 @@ class MockR2 {
   async delete(key: string) {
     this.objects.delete(key);
   }
-
 }
 
-function createEnv(): Env {
+interface TestEnv extends Env {
+  __db: MockD1;
+}
+
+function createEnv(): TestEnv {
+  const db = new MockD1();
   return {
-    DB: new MockD1() as unknown as D1Database,
+    DB: db as unknown as D1Database,
     FILES: new MockR2() as unknown as R2Bucket,
     ADMIN_PASSWORD: 'secret',
     ADMIN_EMAIL_DOMAIN: 'example.com',
     R2_ACCOUNT_ID: 'account123',
     R2_ACCESS_KEY_ID: 'access123',
     R2_SECRET_ACCESS_KEY: 'secret123',
-    R2_BUCKET_NAME: 'files'
+    R2_BUCKET_NAME: 'files',
+    __db: db
   };
 }
 
@@ -165,5 +178,7 @@ describe('worker', () => {
     );
     const files = (await filesResponse.json()) as FileRecord[];
     expect(files[0]?.downloads).toBe(1);
+    expect(env.__db.downloadEvents).toHaveLength(1);
+    expect(env.__db.downloadEvents[0]?.file_id).toBe(id);
   });
 });

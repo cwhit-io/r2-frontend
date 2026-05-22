@@ -4,9 +4,19 @@ const LOGOUT_COOKIE = 'session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0';
 
 export function generateFileId(): string {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  return Array.from(crypto.getRandomValues(new Uint8Array(ID_LENGTH)))
-    .map((value) => alphabet[value % alphabet.length])
-    .join('');
+  const out: string[] = [];
+  const maxUnbiased = Math.floor(256 / alphabet.length) * alphabet.length;
+
+  while (out.length < ID_LENGTH) {
+    const bytes = crypto.getRandomValues(new Uint8Array(ID_LENGTH));
+    for (const value of bytes) {
+      if (value >= maxUnbiased) continue;
+      out.push(alphabet[value % alphabet.length]);
+      if (out.length === ID_LENGTH) break;
+    }
+  }
+
+  return out.join('');
 }
 
 export function sanitizeFilename(name: string): string {
