@@ -20,7 +20,12 @@ export function generateFileId(): string {
 }
 
 export function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160) || 'file';
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '_')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, 160) || 'file';
 }
 
 export function getSessionCookieHeader(authenticated: boolean): string {
@@ -40,12 +45,14 @@ export function htmlEscape(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-export function getPublicUrl(origin: string, id: string): string {
-  return `${origin}/d/${id}`;
+export function getPublicUrl(r2Key: string): string {
+  return `https://b1-storage.bhm.li/${r2Key}`;
 }
 
 export function getR2Key(id: string, filename: string): string {
-  return `${id}/${sanitizeFilename(filename)}`;
+  const sanitized = sanitizeFilename(filename);
+  const ext = sanitized.includes('.') ? sanitized.slice(sanitized.lastIndexOf('.')) : '';
+  return ext ? `files/${id}${ext}` : `files/${id}/${sanitized}`;
 }
 
 export async function sha256Hex(input: string): Promise<string> {

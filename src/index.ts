@@ -1,13 +1,8 @@
 import { z } from 'zod';
 import { isAuthorized, verifyPassword } from './auth';
-import { createSignedR2GetUrl } from './r2SignedUrl';
 import { renderAdmin, renderFilesTable, renderLogin } from './templates';
 import type { Env, FileRecord } from './types';
 import { generateFileId, getPublicUrl, getR2Key, getSessionCookieHeader, sha256Hex } from './utils';
-
-const uploadSchema = z.object({
-  uploader: z.string().trim().min(1).max(120)
-});
 
 const idSchema = z.string().regex(/^[a-z0-9]{12}$/);
 
@@ -75,8 +70,18 @@ export default {
       const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
       await env.DB.prepare('INSERT INTO downloads (file_id, ip_hash) VALUES (?1, ?2)').bind(id, await sha256Hex(ip)).run();
 
-      const signedUrl = await createSignedR2GetUrl(env, record.r2_key);
-      return Response.redirect(signedUrl, 302);
+      return Response.redirect(getPublicUrl(record.r2_key), 302);
+    }
+
+    if (url.pathname.startsWith('/files/') && request.method === 'GET') {
+      const filename = decodeURIComponent(url.pathname.slice('/files/'.length));
+      if (!filename) return new Response('Not found', { status: 404 });
+      const obj = await env.FILES.get(`files/${filename}`);
+      if (!obj) return new Response('Not found', { status: 404 });
+      const headers = new Headers();
+      obj.writeHttpMetadata(headers);
+      headers.set('etag', obj.httpEtag);
+      return new Response(obj.body, { headers });
     }
 
     if (!isAuthorized(request, env)) {
@@ -96,27 +101,35 @@ export default {
       return Response.json(records);
     }
 
+    if (url.pathname === '/api/files-table' && request.method === 'GET') {
+      const records = await listFiles(env);
+      return new Response(renderFilesTable(records, url.origin), {
+        headers: { 'content-type': 'text/html; charset=utf-8' }
+      });
+    }
+
     if (url.pathname === '/api/upload' && request.method === 'POST') {
       const formData = await request.formData();
-      const uploader = formData.get('uploader');
-      const file = formData.get('file');
 
-      const parsed = uploadSchema.safeParse({ uploader });
-      if (!parsed.success || !(file instanceof File) || file.size === 0) {
-        return new Response('Invalid upload payload', { status: 400 });
+      const validFiles = formData.getAll('file').filter((f): f is File => f instanceof File && f.size > 0);
+      if (validFiles.length === 0) {
+        return new Response('No valid files provided', { status: 400 });
       }
 
-      const id = generateFileId();
-      const key = getR2Key(id, file.name);
-      await env.FILES.put(key, file.stream(), {
-        httpMetadata: {
-          contentType: file.type || 'application/octet-stream'
-        }
-      });
-
-      await env.DB.prepare('INSERT INTO files (id, filename, r2_key, uploader) VALUES (?1, ?2, ?3, ?4)')
-        .bind(id, file.name, key, parsed.data.uploader)
-        .run();
+      const results: { id: string; publicUrl: string }[] = [];
+      for (const file of validFiles) {
+        const id = generateFileId();
+        const key = getR2Key(id, file.name);
+        await env.FILES.put(key, file.stream(), {
+          httpMetadata: {
+            contentType: file.type || 'application/octet-stream'
+          }
+        });
+        await env.DB.prepare('INSERT OR REPLACE INTO files (id, filename, r2_key, uploader) VALUES (?1, ?2, ?3, ?4)')
+          .bind(id, file.name, key, '')
+          .run();
+        results.push({ id, publicUrl: `${url.origin}/d/${id}` });
+      }
 
       if (isHtmx(request)) {
         const records = await listFiles(env);
@@ -125,7 +138,7 @@ export default {
         });
       }
 
-      return Response.json({ id, publicUrl: getPublicUrl(url.origin, id) }, { status: 201 });
+      return Response.json(results, { status: 201 });
     }
 
     if (url.pathname.startsWith('/api/files/') && request.method === 'DELETE') {

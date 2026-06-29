@@ -41,7 +41,7 @@ class MockPrepared {
   }
 
   async run() {
-    if (this.query.startsWith('INSERT INTO files')) {
+    if (this.query.includes('INTO files') && this.query.startsWith('INSERT')) {
       const [id, filename, r2_key, uploader] = this.values as [string, string, string, string];
       this.files.set(id, {
         id,
@@ -132,7 +132,6 @@ describe('worker', () => {
   it('uploads a file and returns a public url', async () => {
     const env = createEnv();
     const form = new FormData();
-    form.set('uploader', 'alice');
     form.set('file', new File(['hello'], 'hello.txt', { type: 'text/plain' }));
 
     const response = await worker.fetch(
@@ -145,15 +144,14 @@ describe('worker', () => {
     );
 
     expect(response.status).toBe(201);
-    const json = (await response.json()) as { id: string; publicUrl: string };
-    expect(json.id).toMatch(/^[a-z0-9]{12}$/);
-    expect(json.publicUrl).toBe(`https://app.example.com/d/${json.id}`);
+    const json = (await response.json()) as { id: string; publicUrl: string }[];
+    expect(json[0]?.id).toMatch(/^[a-z0-9]{12}$/);
+    expect(json[0]?.publicUrl).toMatch(/^https:\/\/app\.example\.com\/d\/[a-z0-9]{12}$/);
   });
 
   it('increments download count before redirecting', async () => {
     const env = createEnv();
     const form = new FormData();
-    form.set('uploader', 'alice');
     form.set('file', new File(['hello'], 'hello.txt', { type: 'text/plain' }));
 
     const uploadResponse = await worker.fetch(
@@ -164,7 +162,7 @@ describe('worker', () => {
       }),
       env
     );
-    const { id } = (await uploadResponse.json()) as { id: string };
+    const [{ id }] = (await uploadResponse.json()) as { id: string }[];
 
     const downloadResponse = await worker.fetch(new Request(`https://app.example.com/d/${id}`), env);
 
@@ -180,5 +178,57 @@ describe('worker', () => {
     expect(files[0]?.downloads).toBe(1);
     expect(env.__db.downloadEvents).toHaveLength(1);
     expect(env.__db.downloadEvents[0]?.file_id).toBe(id);
+  });
+
+  it('preserves download count when re-uploading file with same name', async () => {
+    const env = createEnv();
+    const form1 = new FormData();
+    form1.set('file', new File(['hello'], 'hello.txt', { type: 'text/plain' }));
+
+    // Upload first file
+    const uploadResponse1 = await worker.fetch(
+      new Request('https://app.example.com/api/upload', {
+        method: 'POST',
+        body: form1,
+        headers: { 'CF-Access-Authenticated-User-Email': 'alice@example.com' }
+      }),
+      env
+    );
+    const [{ id: id1 }] = (await uploadResponse1.json()) as { id: string }[];
+
+    // Download the file to increment count
+    await worker.fetch(new Request(`https://app.example.com/d/${id1}`), env);
+
+    // Upload second file with same name (should create a new file entry)
+    const form2 = new FormData();
+    form2.set('file', new File(['world'], 'hello.txt', { type: 'text/plain' }));
+    const uploadResponse2 = await worker.fetch(
+      new Request('https://app.example.com/api/upload', {
+        method: 'POST',
+        body: form2,
+        headers: { 'CF-Access-Authenticated-User-Email': 'alice@example.com' }
+      }),
+      env
+    );
+    const [{ id: id2 }] = (await uploadResponse2.json()) as { id: string }[];
+
+    // Both files should exist with different IDs
+    expect(id1).not.toBe(id2);
+
+    const filesResponse = await worker.fetch(
+      new Request('https://app.example.com/api/files', {
+        headers: { 'CF-Access-Authenticated-User-Email': 'alice@example.com' }
+      }),
+      env
+    );
+    const files = (await filesResponse.json()) as FileRecord[];
+    
+    // Download count should be preserved on first file
+    const file1 = files.find(f => f.id === id1);
+    expect(file1?.downloads).toBe(1);
+    
+    // Second file should have 0 downloads
+    const file2 = files.find(f => f.id === id2);
+    expect(file2?.downloads).toBe(0);
   });
 });
